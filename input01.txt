@@ -1,0 +1,13 @@
+poopy := 3+ 9 * a999 / (a / 9)
+read abasdflkj
+write (xdfhxfdhdx+4)
+write p - 9 / Akjsdfds
+a := Poopy + S* ( 3 +2)*5
+read pppp write
+a
+pp :=a / 6 * 75 + 3
+writerea := s*(a+b)*(a-b)
+$$
+
+
+

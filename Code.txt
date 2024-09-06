@@ -1,0 +1,224 @@
+#lang racket
+
+(require data/maybe)
+(require racket/string)
+(define while-checker #f)
+(define linenum 0)
+
+(define-syntax-rule (syntax-error line message)
+  (error 
+    (format "Syntax error on line ~a: ~a" line message)))
+
+(define (parse filename)
+  (with-handlers ([exn:fail? (lambda (exn)
+                                (displayln (exn-message exn)))])
+    (begin
+      (define filelist (file->lines filename))
+      (filechecker filelist) 
+      (when (filechecker filelist)
+          (displayln "Accept")))))
+
+(define (adjust-list-for-end-marker lst)
+  (define (trim-and-check-end-marker line)
+    (equal? (string-trim line) "$$"))
+  (let loop ([remaining lst] [result '()])
+    (cond
+      [(null? remaining) (reverse result)]
+      [else
+       (let ([current (car remaining)] [rest (cdr remaining)])
+         (if (trim-and-check-end-marker current)
+             (reverse (cons current result))
+             (loop rest (cons current result))))])))
+
+(define (filechecker in)
+  (let ([adjusted-list (adjust-list-for-end-marker in)])
+    (and 
+      (linelist adjusted-list)
+      (equal? (string-trim (last adjusted-list)) "$$"))))
+
+(define (linelist in)
+  (or 
+    (equal? (string-trim (car in)) "$$") 
+    (and (line (car in))
+         (linelist (cdr in)))))
+
+(define (line in)
+  (define my-list (split-by-par in))
+  (increment linenum)
+  (cond
+    [(and (label (car my-list)) (statement (cdr my-list)) (linetail (last my-list)))
+     (just #t)]
+    [(and (statement my-list) (linetail (last my-list)))
+     (just #t)]
+    [else (syntax-error linenum "Invalid line detected")]))
+
+(define (split-by-par in)
+  (filter (lambda (str) (not (equal? "" str)))
+    (filter non-empty-string?
+      (regexp-split 
+        (pregexp "((?=\\()|(?<=\\()|(?=\\))|(?<=\\))|(\\s+))") in))))
+
+(define (label in)
+  (cond
+    [(empty? in) #t]
+    [(colonsplit in) #t]
+    [else #f]))
+
+(define (colonsplit in)
+  (define my-list (regexp-split (pregexp "((?=:)|(?<!:)(?=$))") in))
+  (cond
+    [(and (id (car my-list)) (equal? (last my-list) ":")) #t]
+    [else #f]))
+  
+(define (linetail in)
+  #t)
+
+(define (statement in)
+ (begin
+  (cond
+   [(and (> (length in) 1) (id (car in)) (equal? (cadr in) "=") (expression (cdr (cdr in))))
+    (just #t)] 
+      
+      [(and (equal? (car in) "if") (boolean (cdr in)))
+       (just #t)]
+      
+      [(and (equal? (car in) "while") (boolean (cdr in)))
+       (change-while #t) (just #t)]
+      
+      [(and (equal? while-checker #t) (equal? (car in) "endwhile"))
+       (change-while #f) (just #t)]
+      
+      [(and (> (length in) 1) (equal? (car in) "read") (id (cadr in)))
+       (just #t)]
+      
+      [(and (equal? (car in) "write") (expression (cdr in)))
+       (just #t)]
+      
+      [(and (> (length in) 1) (equal? (car in) "goto") (id (cadr in)))
+       (just #t)]
+      
+      [(and (> (length in) 1) (equal? (car in) "gosub") (id (cadr in)))
+       (just #t)]
+      
+      [(and (equal? (length in) 1) (equal? (car in) "return"))
+       (just #t)]
+      
+      [(and (equal? (length in) 1) (equal? (car in) "break"))
+       (just #t)]
+      
+      [(and (equal? (length in) 1) (equal? (car in) "end"))
+       (just #t)]
+      
+      [else (syntax-error linenum "Invalid statement detected")])))
+
+(define (change-while in)
+  (set! while-checker in))
+
+(define (increment in)
+  (set! linenum (+ 1 in)))
+
+(define (boolean in)
+  (define my-list1 (list (car in) (cadr in)))
+  (define my-list2 (caddr in))
+  (define my-list3 (cdddr in))
+  
+  (cond
+    [(equal? in "true") (just #t)]
+    
+    [(equal? in "false") (just #t)]
+    
+    [(and (expression my-list1) (bool-op my-list2) (par-expr my-list3)) (just #t)]
+    [else (syntax-error linenum "Invalid boolean detected")]))
+
+(define (bool-op in)
+  (cond
+    [(equal? in "<") (just #t)]
+    [(equal? in ">") (just #t)]
+    [(equal? in ">=") (just #t)]
+    [(equal? in "<=") (just #t)]
+    [(equal? in "<>") (just #t)]
+    [(equal? in "=") (just #t)]
+    [else #f]))
+
+(define (expression in)
+  (cond
+    [(empty? in) (just #t)]
+    
+    [(and (equal? (car in) "(") (par-expr (cdr in))) (just #t)]
+    
+    [(and (id (car in)) (etail (cdr in))) (just #t)]
+    
+    [(and (num (car in)) (etail (cdr in))) (just #t)]
+    
+    [else (syntax-error linenum "Invalid expression detected")]))
+
+
+(define (par-expr in)
+  (cond
+    [(empty? in) (just #t)]
+    
+    [(and (id (car in)) (par-etail (cdr in))) (just #t)]
+    
+    [(and (num (car in)) (par-etail (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "(") (par-expr (cdr in))) (just #t)]
+    
+    [else #f]))
+
+(define (par-etail in)
+  (cond
+    [(empty? in) (just #t)]
+    
+    [(and (equal? (car in) ")") (etail (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "+") (par-expr (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "-") (par-expr (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "*") (par-expr (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "/") (par-expr (cdr in))) (just #t)]
+    
+    [else #f]))
+
+(define (etail in)
+  (cond
+    [(empty? in) (just #t)]
+    
+    [(and (equal? (car in) "+") (expression (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "-") (expression (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "*") (expression (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) "/") (expression (cdr in))) (just #t)]
+    
+    [(and (equal? (car in) ";") (statement (cdr in))) (just #t)]
+    
+    [else #f]))
+
+(define (id in)
+  (regexp-match? #rx"^[a-zA-Z][a-zA-Z0-9]*$" in))
+
+(define (num in)
+  (cond
+    [(regexp-match? #rx"^[+-][0-9]+$" in) #t]
+    
+    [(regexp-match? #rx"^[0-9]+$" in) #t]
+    
+    [else #f]))
+
+(define (numsign in)
+  (regexp-match? #rx"[+-]" (string in)))
+
+(define (digit in)
+  (regexp-match? #rx"^[0-9]$" (string in)))
+
+(define (isid word)
+  (regexp-match? #rx"^([a-zA-Z]+)$" (string word)))
+
+(define (isnum word)
+  (or (regexp-match? #rx"^[1-9][0-9]*$" word)
+      (equal? word "0")))
+
+(parse "file01.txt")
